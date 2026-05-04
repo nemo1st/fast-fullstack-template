@@ -1,0 +1,23 @@
+# APK files (large and cause I/O errors)
+**/*.apk
+
+# Cache and temp files
+__pycache__/
+*.pyc
+*.pyo
+.git
+.gitignore
+*.log
+venv/
+.venv/
+node_modules/
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db

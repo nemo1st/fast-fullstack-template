@@ -1,0 +1,10 @@
+version = 0.1
+
+[default.deploy.parameters]
+# stack_name is overridden via `sam deploy --stack-name` in the workflow.
+region = "ap-northeast-1"
+confirm_changeset = false
+fail_on_empty_changeset = false
+capabilities = "CAPABILITY_IAM"
+# PackageType: Image; deployment artifact bucket is unnecessary.
+resolve_s3 = false

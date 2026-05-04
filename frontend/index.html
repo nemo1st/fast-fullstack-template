@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Template</title>
+    <style>
+        body { font-family: system-ui, sans-serif; max-width: 640px; margin: 4rem auto; padding: 0 1rem; line-height: 1.6; }
+        h1 { margin-bottom: 0.5rem; }
+        code { background: #f4f4f4; padding: 0.1rem 0.3rem; border-radius: 3px; }
+        #status { padding: 0.5rem 0.75rem; border-radius: 4px; background: #f4f4f4; }
+        #status.ok { background: #e6ffed; }
+        #status.err { background: #ffeef0; }
+    </style>
+</head>
+<body>
+    <h1>Template Repository</h1>
+    <p>Lambda(Container) + S3 + CloudFront + GitHub Actions OIDC の Web アプリ雛形。</p>
+    <p><code>GET /api/health</code>: <span id="status">checking...</span></p>
+    <script>
+        fetch('/api/health')
+            .then(r => r.json())
+            .then(d => {
+                const el = document.getElementById('status');
+                el.textContent = JSON.stringify(d);
+                el.classList.add('ok');
+            })
+            .catch(e => {
+                const el = document.getElementById('status');
+                el.textContent = 'error: ' + e.message;
+                el.classList.add('err');
+            });
+    </script>
+</body>
+</html>

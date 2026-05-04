@@ -1,0 +1,12 @@
+FROM public.ecr.aws/lambda/python:3.12
+
+ENV TZ="Asia/Tokyo"
+
+WORKDIR ${LAMBDA_TASK_ROOT}
+
+COPY ./api/app/requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY ./api/app ${LAMBDA_TASK_ROOT}/
+
+CMD ["lambda_handler.handler"]

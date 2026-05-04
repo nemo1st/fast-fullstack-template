@@ -1,0 +1,130 @@
+name: Deploy Lambda + Static Frontend
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'api/**'
+      - 'frontend/**'
+      - 'infra/**'
+      - '.github/workflows/deploy-lambda.yml'
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  PROJECT_NAME: ${{ vars.PROJECT_NAME }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push Lambda image
+        id: build
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          IMAGE_URI="${ECR_REGISTRY}/${PROJECT_NAME}:${IMAGE_TAG}"
+          # Lambda does not accept OCI image index format —
+          # disable provenance/sbom to produce a plain Docker manifest.
+          docker buildx build \
+            --platform linux/amd64 \
+            --provenance=false \
+            --sbom=false \
+            -f api/Dockerfile.lambda \
+            -t "${IMAGE_URI}" \
+            --push \
+            .
+          echo "image_uri=${IMAGE_URI}" >> "$GITHUB_OUTPUT"
+
+      - name: Setup AWS SAM
+        uses: aws-actions/setup-sam@v2
+        with:
+          use-installer: true
+
+      - name: SAM deploy
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          sam deploy \
+            --template-file infra/template.yaml \
+            --config-file ${{ github.workspace }}/infra/samconfig.toml \
+            --stack-name "${PROJECT_NAME}" \
+            --image-repository "${ECR_REGISTRY}/${PROJECT_NAME}" \
+            --parameter-overrides \
+              ProjectName="${PROJECT_NAME}" \
+              ImageUri=${{ steps.build.outputs.image_uri }}
+
+      - name: Get stack outputs
+        id: outputs
+        run: |
+          BUCKET=$(aws cloudformation describe-stacks \
+            --stack-name "${PROJECT_NAME}" \
+            --region "${AWS_REGION}" \
+            --query 'Stacks[0].Outputs[?OutputKey==`StaticBucketName`].OutputValue' \
+            --output text)
+          FUNCTION_URL=$(aws cloudformation describe-stacks \
+            --stack-name "${PROJECT_NAME}" \
+            --region "${AWS_REGION}" \
+            --query 'Stacks[0].Outputs[?OutputKey==`FunctionUrl`].OutputValue' \
+            --output text)
+          DISTRIBUTION_ID=$(aws cloudformation describe-stacks \
+            --stack-name "${PROJECT_NAME}" \
+            --region "${AWS_REGION}" \
+            --query 'Stacks[0].Outputs[?OutputKey==`DistributionId`].OutputValue' \
+            --output text)
+          DISTRIBUTION_DOMAIN=$(aws cloudformation describe-stacks \
+            --stack-name "${PROJECT_NAME}" \
+            --region "${AWS_REGION}" \
+            --query 'Stacks[0].Outputs[?OutputKey==`DistributionDomainName`].OutputValue' \
+            --output text)
+          echo "bucket=${BUCKET}" >> "$GITHUB_OUTPUT"
+          echo "function_url=${FUNCTION_URL}" >> "$GITHUB_OUTPUT"
+          echo "distribution_id=${DISTRIBUTION_ID}" >> "$GITHUB_OUTPUT"
+          echo "distribution_domain=${DISTRIBUTION_DOMAIN}" >> "$GITHUB_OUTPUT"
+
+      - name: Sync frontend to S3
+        run: |
+          aws s3 sync frontend/ "s3://${{ steps.outputs.outputs.bucket }}/" --delete
+
+      - name: Invalidate CloudFront
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id "${{ steps.outputs.outputs.distribution_id }}" \
+            --paths '/*'
+
+      - name: Warm up Lambda
+        run: |
+          aws lambda invoke \
+            --function-name "${PROJECT_NAME}" \
+            --payload '{"warmup": true}' \
+            --cli-binary-format raw-in-base64-out \
+            /tmp/warmup-response.json
+          cat /tmp/warmup-response.json
+
+      - name: Print outputs
+        run: |
+          echo "Function URL: ${{ steps.outputs.outputs.function_url }}"
+          echo "Static bucket: ${{ steps.outputs.outputs.bucket }}"
+          echo "CloudFront: https://${{ steps.outputs.outputs.distribution_domain }}/"

@@ -14,5 +14,6 @@ __pycache__/
 # Build output
 dist/
 
-# Claude Code local state
-.claude/
+# Claude Code local state (skills/commands/agents は共有資産として commit する)
+.claude/settings.local.json
+.claude/worktrees/
